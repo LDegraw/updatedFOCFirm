@@ -1,0 +1,16 @@
+../Core/Src/motor.c:53:10:readEncoder	1
+../Core/Src/motor.c:61:6:getAngle	1
+../Core/Src/motor.c:73:6:readHalls	9
+../Core/Src/motor.c:141:6:_adcHandler	1
+../Core/Src/motor.c:159:6:MOTOR_init	1
+../Core/Src/motor.c:175:6:MOTOR_updateShaftAngle	1
+../Core/Src/motor.c:180:7:MOTOR_getCurrent	1
+../Core/Src/motor.c:185:7:approxRollingAverage	1
+../Core/Src/motor.c:196:6:MOTOR_SVPWMtask	2
+../Core/Src/motor.c:221:6:get_Current	1
+../Core/Src/motor.c:240:6:MOTOR_task	13
+../Core/Src/motor.c:328:6:MOTOR_FOCtask	1
+../Core/Src/motor.c:379:6:svpwm	17
+../Core/Src/motor.c:475:6:_drive_uv	1
+../Core/Src/motor.c:480:6:_drive_vw	1
+../Core/Src/motor.c:485:6:_drive_wu	1
