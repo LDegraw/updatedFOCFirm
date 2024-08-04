@@ -39,7 +39,7 @@
 /* USER CODE BEGIN PD */
 #define ADC_BUF_LENGTH 4096
 #define TIMCLOCK   150000000
-#define PRESCALAR  300
+#define PRESCALAR  150
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -51,6 +51,7 @@
 ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 DMA_HandleTypeDef hdma_adc1;
+DMA_HandleTypeDef hdma_adc2;
 
 COMP_HandleTypeDef hcomp2;
 
@@ -190,6 +191,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		motor.avg_speed = 0;
 		motor.hallspeed = 0;
 		htim17.Instance->CNT = 0;
+		motor.prescaler++;
 	}
 	if(htim == &htim16){
 
@@ -473,7 +475,7 @@ int main(void)
   motor.hallPins[2] = Hall_3;
   motor.dutyCycle = 0.2;
   motor.speedTim = &htim17;
-  motor.dir = 1;        // make go forward
+  motor.dir = 0;        // make go forward
 
   uint8_t dataBuffer;
   uint8_t changeState;
@@ -508,9 +510,9 @@ int main(void)
   float a[3], b[3];
 
   toggleState = 0;
-  double kp = 0.000000215f;
+  double kp = 0.00000000215f;
   double kd = 0.00000000205f;
-  double ki = 0.0000000288f;
+  double ki = 0.000000000288f;
   double lastDuty = 0;
   double lastSpeedErr = 0;
   double speedErr = 0;
@@ -528,10 +530,28 @@ int main(void)
   float datatest;
   SEGGER_RTT_Init();
   HAL_COMP_Start(&hcomp2);
+
+  HAL_TIM_PWM_Start(&htim2,  TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim2,  TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim2,  TIM_CHANNEL_4);
+  htim2.Instance->CCR2 = 0;
+  htim2.Instance->CCR3 = 0;
+  htim2.Instance->CCR4 = 0;
+
+
+
+
   HAL_TIM_Base_Start_IT(&htim17);
   HAL_TIM_Base_Start(&htim17);
+
+  //start adc for motor
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t *) motor.adcData, 3);
+
+  // start adc for joystick
+  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t *) motor.joystickData, 2);
+
   // setting motor 1
   int x = 0 ;
   float offsetU;
@@ -544,12 +564,14 @@ int main(void)
   	  offsetW += (float)motor.adcData[2];
   	  x++;
   	  }
-
+  motor.posMode = false;
+  motor.prescaler = 150;
   motor.offset[0] = round(offsetU/1000.0f);
   motor.offset[1] = round(offsetV/1000.0f);
   motor.offset[2] = round(offsetW/1000.0f);
+  motor.torqueLevel = 12;
 
-
+  int ledTime = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -559,19 +581,41 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  motor.hallCount = htim17.Instance->CNT;
-	  readHalls(&motor);
+	  htim2.Instance->CCR2 = 500.0f;
+	  htim2.Instance->CCR3 = 500.0f;
+	  htim2.Instance->CCR4 = 0;
+	  ledTime+=0.00001;
+
+	  if(motor.joystickData[0] > 2500){
+		  motor.dir = 1;
+		  motor.posMode = false;
+		  motor.goalSpeed = 100.0f;
+	  }
+	  else if (motor.joystickData[0] < 2000){
+		  motor.posMode = false;
+		  motor.dir = 0;
+		  motor.goalSpeed = 100.0f;
+	  }
+	  else{
+		  motor.goalSpeed = 0.0f;
+		  motor.posMode = true;
+	  }
+
 	  get_Current(&motor);
+	  motor.hallCount = htim17.Instance->CNT;
+
+	  readHalls(&motor);
 	  MOTOR_FOCtask(&motor);
-	    speedErr = (float)(30.0f - motor.avg_speed);
-	    motor.dutyCycle = motor.dutyCycle + (float)(kp *speedErr) + (float)(kd * (speedErr - lastSpeedErr)) + (float)(ki * totalErr);
-	    if(motor.dutyCycle > 0.5f){
-	    	motor.dutyCycle = 0.5f;
-		}
-		else if(motor.dutyCycle < 0.000f){
+	  speedErr = (float)(motor.goalSpeed - motor.avg_speed);
+	  motor.dutyCycle = motor.dutyCycle + (float)(kp *speedErr) + (float)(kd * (speedErr - lastSpeedErr)) + (float)(ki * totalErr);
+
+	 if(motor.dutyCycle > 1.0f){
+	    motor.dutyCycle = 1.0f;
+	 	 }
+	 else if(motor.dutyCycle < 0.000f){
 			motor.dutyCycle = 0.000f;
 		}
-  	  }
+  	}
 	lastSpeedErr = speedErr;
 	lastDuty = motor.dutyCycle;
 	totalErr += speedErr;
@@ -681,8 +725,10 @@ static void MX_ADC1_Init(void)
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_6CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
-  sConfig.OffsetNumber = ADC_OFFSET_NONE;
-  sConfig.Offset = 0;
+  sConfig.OffsetNumber = ADC_OFFSET_4;
+  sConfig.Offset = 40;
+  sConfig.OffsetSign = ADC_OFFSET_SIGN_NEGATIVE;
+  sConfig.OffsetSaturation = DISABLE;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -692,6 +738,8 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_11;
   sConfig.Rank = ADC_REGULAR_RANK_2;
+  sConfig.OffsetNumber = ADC_OFFSET_1;
+  sConfig.Offset = 10;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -701,6 +749,8 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_14;
   sConfig.Rank = ADC_REGULAR_RANK_3;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -742,9 +792,9 @@ static void MX_ADC2_Init(void)
   hadc2.Init.ContinuousConvMode = DISABLE;
   hadc2.Init.NbrOfConversion = 2;
   hadc2.Init.DiscontinuousConvMode = DISABLE;
-  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc2.Init.DMAContinuousRequests = DISABLE;
+  hadc2.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T1_CC2;
+  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc2.Init.DMAContinuousRequests = ENABLE;
   hadc2.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc2.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc2) != HAL_OK)
@@ -756,7 +806,7 @@ static void MX_ADC2_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_6CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -1004,9 +1054,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 16;
+  htim2.Init.Prescaler = 2;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 255;
+  htim2.Init.Period = 765;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
@@ -1128,7 +1178,7 @@ static void MX_TIM17_Init(void)
 
   /* USER CODE END TIM17_Init 1 */
   htim17.Instance = TIM17;
-  htim17.Init.Prescaler = 300;
+  htim17.Init.Prescaler = 150;
   htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim17.Init.Period = 65535;
   htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -1206,6 +1256,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMA1_Channel2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
 

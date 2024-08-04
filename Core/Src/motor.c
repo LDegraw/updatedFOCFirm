@@ -76,9 +76,6 @@ void readHalls(motor_t* m){
     int hall3 = HAL_GPIO_ReadPin(m->hallPins[2].gpioGroup, m->hallPins[2].gpioPin);
     int steps;
 
-
-
-
     switch((hall1<<2)|(hall2<<1)|(hall3))
     {
         case 0b100:
@@ -124,16 +121,23 @@ void readHalls(motor_t* m){
 
     m->avg_speed = approxRollingAverage(avg_speed, m->speed);
     m->angleOffset =  60.0f * (m->avg_speed * (float)m->hallCount / 1000000.0f);
-    //altered hall input
-
+    float temp = m->angle;
     if(m->angleOffset > 60.0f ){
     	m->angleOffset = 60.0f;
+
     }
     else if (m->angleOffset < 0.0f){
     	m->angleOffset = 0.0f;
     }
-    m->angle = m->angle +  m->angleOffset;
+    if(m->dir){
+        m->angle = m->angle +  m->angleOffset;
+    }
+    else{
+    	m->angle = m->angle + 60.0f - m->angleOffset;
+    }
+    m->lastAngle = temp;
     m->lastHallState = m->hallState;
+
   return;
 }
 
@@ -183,7 +187,7 @@ float MOTOR_getCurrent(motor_t* m)
 }
 
 float approxRollingAverage (float avg, float new_sample) {
-	float n = 150.0;
+	float n = 100.0;
     avg -= avg / n;
     avg += new_sample / n;
 
@@ -219,12 +223,12 @@ void MOTOR_SVPWMtask(motor_t* m)
 }
 
 void get_Current(motor_t * m){
-	float voltageA = (3.3f *((float) m->adcData[0] / 4096.0f ))-1.65f;
-	float voltageB = (3.3f *((float) m->adcData[1] / 4096.0f ))-1.65f;
-	float voltageC = (3.3f *((float) m->adcData[2] / 4096.0f ))-1.65f;
-	m->iuDat =  MP6543_IGAIN * voltageA / MP6543_SHUNT_RESISTOR;
-	m->iwDat =  MP6543_IGAIN * voltageB / MP6543_SHUNT_RESISTOR;
-	m->ivDat =  MP6543_IGAIN * voltageC / MP6543_SHUNT_RESISTOR;
+	float voltageA = (3.3f *((float) m->adcData[0] / 4096.0f ));
+	float voltageB = (3.3f *((float) m->adcData[1] / 4096.0f ));
+	float voltageC = (3.3f *((float) m->adcData[2] / 4096.0f ));
+	m->iuDat = MP6543_IGAIN * voltageA / MP6543_SHUNT_RESISTOR;
+	m->iwDat = MP6543_IGAIN * voltageB / MP6543_SHUNT_RESISTOR;
+	m->ivDat = MP6543_IGAIN * voltageC / MP6543_SHUNT_RESISTOR;
 
 	m->iaDat = (m->ivDat +  m->iwDat);
 	m->ibDat = (m->iuDat +  m->iwDat);
@@ -327,6 +331,9 @@ void MOTOR_task(motor_t* m)
 
 void MOTOR_FOCtask(motor_t* m)
 {
+    if(m->posMode == true){
+    	return;
+    }
     // Enable all three motor phases
     HAL_GPIO_WritePin(m->enablePins[0].gpioGroup, m->enablePins[0].gpioPin, 1);
     HAL_GPIO_WritePin(m->enablePins[1].gpioGroup, m->enablePins[1].gpioPin, 1);
@@ -487,5 +494,17 @@ void _drive_wu(motor_t* m){
     HAL_GPIO_WritePin(m->enablePins[1].gpioGroup, m->enablePins[1].gpioPin, 0);
     HAL_GPIO_WritePin(m->enablePins[2].gpioGroup, m->enablePins[2].gpioPin, 1);
 }
+
+/**
+ * Back emf is calculated as Ki:
+ * 3.46 Ω
+ * 0.121 mH
+ *
+ * 31.3 mNm max torque (9.02 mNm/A)
+ * 3.47 stall current
+ * 18000 rpm max speed
+ *
+ *
+ */
 
 

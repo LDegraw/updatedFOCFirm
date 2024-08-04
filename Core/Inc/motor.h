@@ -23,12 +23,17 @@ typedef struct {
     gpio_Pin motorSleep;
     ADC_HandleTypeDef* adc;
     uint16_t adcData[3];
+    uint16_t joystickData[2];
     uint8_t hallState;
     uint8_t lastHallState;
     SPI_HandleTypeDef* encoder;
     uint16_t encoderStartVal;
     TIM_HandleTypeDef* speedTim;
+    float goalSpeed;
+    float goalPosition;
+    bool posMode;
     float angle;
+    float lastAngle;
     float iuDat;
     float ivDat;
     float iwDat;
@@ -42,6 +47,7 @@ typedef struct {
     float V_dutyCycle;
     float W_dutyCycle;
     float V_magnitude;
+    int prescaler;
     float id;
     float iq;
     float a;
